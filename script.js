@@ -1,4 +1,8 @@
 const video = document.getElementById("video");
+const registerBtn = document.getElementById("registerBtn");
+
+let labeledFaceDescriptors = [];
+let faceMatcher;
 
 Promise.all([
   faceapi.nets.ssdMobilenetv1.loadFromUri("/models"),
@@ -8,30 +12,32 @@ Promise.all([
 
 function startWebcam() {
   navigator.mediaDevices
-    .getUserMedia({
-      video: true,
-      audio: false,
-    })
+    .getUserMedia({ video: true, audio: false })
     .then((stream) => {
       video.srcObject = stream;
     })
     .catch((error) => {
-      console.error(error);
+      console.error("Error accessing webcam:", error);
     });
 }
 
-function getLabeledFaceDescriptions() {
-  const labels = ["Patriche", "Gea","Ahdee"];
+async function getLabeledFaceDescriptions() {
+  const labels = ["Patriche", "Gea", "Ahdee"];
   return Promise.all(
     labels.map(async (label) => {
       const descriptions = [];
       for (let i = 1; i <= 2; i++) {
-        const img = await faceapi.fetchImage(`./labels/${label}/${i}.png`);
-        const detections = await faceapi
+        const imgUrl = `./labels/${label}/${i}.png`;
+        const img = await faceapi.fetchImage(imgUrl);
+        const detection = await faceapi
           .detectSingleFace(img)
           .withFaceLandmarks()
           .withFaceDescriptor();
-        descriptions.push(detections.descriptor);
+        if (!detection) {
+          console.warn(`No face detected for ${label} image ${i}`);
+          continue;
+        }
+        descriptions.push(detection.descriptor);
       }
       return new faceapi.LabeledFaceDescriptors(label, descriptions);
     })
@@ -39,11 +45,11 @@ function getLabeledFaceDescriptions() {
 }
 
 video.addEventListener("play", async () => {
-  const labeledFaceDescriptors = await getLabeledFaceDescriptions();
-  const faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors);
+  labeledFaceDescriptors = await getLabeledFaceDescriptions();
+  faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
 
   const canvas = faceapi.createCanvasFromMedia(video);
-  document.body.append(canvas);
+  document.body.appendChild(canvas);
 
   const displaySize = { width: video.width, height: video.height };
   faceapi.matchDimensions(canvas, displaySize);
@@ -55,18 +61,50 @@ video.addEventListener("play", async () => {
       .withFaceDescriptors();
 
     const resizedDetections = faceapi.resizeResults(detections, displaySize);
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-
-    const results = resizedDetections.map((d) => {
-      return faceMatcher.findBestMatch(d.descriptor);
-    });
-    results.forEach((result, i) => {
-      const box = resizedDetections[i].detection.box;
-      const drawBox = new faceapi.draw.DrawBox(box, {
-        label: result,
-      });
+    resizedDetections.forEach((detection) => {
+      const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+      const box = detection.detection.box;
+      const drawBox = new faceapi.draw.DrawBox(box, { label: bestMatch.toString() });
       drawBox.draw(canvas);
     });
   }, 100);
+});
+
+// Register New Face Function
+registerBtn.addEventListener("click", async () => {
+  const detection = await faceapi
+    .detectSingleFace(video)
+    .withFaceLandmarks()
+    .withFaceDescriptor();
+
+  if (!detection) {
+    alert("No face detected. Please try again.");
+    return;
+  }
+
+  const name = prompt("Enter the person's name:");
+  if (!name) {
+    alert("Name is required.");
+    return;
+  }
+
+  // Create or update the face descriptor for the name
+  const existingDescriptor = labeledFaceDescriptors.find(
+    (desc) => desc.label === name
+  );
+
+  if (existingDescriptor) {
+    existingDescriptor.descriptors.push(detection.descriptor);
+  } else {
+    labeledFaceDescriptors.push(
+      new faceapi.LabeledFaceDescriptors(name, [detection.descriptor])
+    );
+  }
+
+  // Update the matcher
+  faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
+  alert(`${name} has been registered!`);
 });
