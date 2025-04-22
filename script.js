@@ -1,5 +1,7 @@
 const video = document.getElementById("video");
 const registerBtn = document.getElementById("registerBtn");
+const savedFaces = JSON.parse(localStorage.getItem("labeledFaceDescriptors"));
+console.log(savedFaces);
 
 let labeledFaceDescriptors = [];
 let faceMatcher;
@@ -9,6 +11,7 @@ Promise.all([
   faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
   faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
 ]).then(startWebcam);
+
 
 function startWebcam() {
   navigator.mediaDevices
@@ -22,6 +25,18 @@ function startWebcam() {
 }
 
 async function getLabeledFaceDescriptions() {
+  const savedDescriptors = localStorage.getItem("labeledFaceDescriptors");
+  if (savedDescriptors) {
+    // Load from localStorage
+    return JSON.parse(savedDescriptors).map((labelData) => {
+      return new faceapi.LabeledFaceDescriptors(
+        labelData.label,
+        labelData.descriptors.map((desc) => new Float32Array(desc))
+      );
+    });
+  }
+
+  // If no saved descriptors, fetch from image labels (existing logic)
   const labels = ["Patriche", "Gea", "Ahdee"];
   return Promise.all(
     labels.map(async (label) => {
@@ -106,5 +121,17 @@ registerBtn.addEventListener("click", async () => {
 
   // Update the matcher
   faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
+
+  // Save to localStorage
+  localStorage.setItem(
+    "labeledFaceDescriptors",
+    JSON.stringify(
+      labeledFaceDescriptors.map((desc) => ({
+        label: desc.label,
+        descriptors: desc.descriptors.map((descriptor) => Array.from(descriptor)),
+      }))
+    )
+  );
+
   alert(`${name} has been registered!`);
 });
