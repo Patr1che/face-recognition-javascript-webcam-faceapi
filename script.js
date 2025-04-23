@@ -2,6 +2,7 @@
 const video = document.getElementById("video");
 const registerBtn = document.getElementById("registerBtn");
 const clearBtn = document.getElementById("clearBtn");
+const downloadBtn = document.getElementById("downloadBtn");
 
 // Load previously saved face descriptors
 let labeledFaceDescriptors = [];
@@ -12,11 +13,13 @@ Promise.all([
   faceapi.nets.ssdMobilenetv1.loadFromUri("/models"),
   faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
   faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
-]).then(startWebcam).then(loadSavedFaces);
+])
+  .then(startWebcam)
+  .then(loadSavedFaces);
 
 // Start the webcam stream
 function startWebcam() {
-  navigator.mediaDevices
+  return navigator.mediaDevices
     .getUserMedia({ video: true, audio: false })
     .then((stream) => {
       video.srcObject = stream;
@@ -37,7 +40,7 @@ async function loadSavedFaces() {
       );
     });
     faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
-    console.log(labeledFaceDescriptors)
+    console.log("Loaded Descriptors:", labeledFaceDescriptors);
   } else {
     labeledFaceDescriptors = [];
     faceMatcher = null;
@@ -63,15 +66,15 @@ video.addEventListener("play", () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     resizedDetections.forEach((detection) => {
+      const box = detection.detection.box;
+
       if (faceMatcher) {
         const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-        const box = detection.detection.box;
         const drawBox = new faceapi.draw.DrawBox(box, {
           label: bestMatch.toString(),
         });
         drawBox.draw(canvas);
       } else {
-        const box = detection.detection.box;
         const drawBox = new faceapi.draw.DrawBox(box, {
           label: "Unregistered",
         });
@@ -99,7 +102,6 @@ registerBtn.addEventListener("click", async () => {
     return;
   }
 
-  // Add or update existing descriptor
   const existingDescriptor = labeledFaceDescriptors.find(
     (desc) => desc.label === name
   );
@@ -112,19 +114,40 @@ registerBtn.addEventListener("click", async () => {
     );
   }
 
-  // Update matcher
   faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
 
-  // Save updated descriptors to localStorage
   localStorage.setItem(
     "labeledFaceDescriptors",
     JSON.stringify(
       labeledFaceDescriptors.map((desc) => ({
         label: desc.label,
-        descriptors: desc.descriptors.map((descriptor) => Array.from(descriptor)),
+        descriptors: desc.descriptors.map((d) => Array.from(d)),
       }))
     )
   );
 
   alert(`${name} has been registered!`);
+});
+
+
+// Download Descriptors
+downloadBtn.addEventListener("click", () => {
+  const dataStr = JSON.stringify(
+    labeledFaceDescriptors.map((desc) => ({
+      label: desc.label,
+      descriptors: desc.descriptors.map((d) => Array.from(d)),
+    })),
+    null,
+    2
+  );
+
+  const blob = new Blob([dataStr], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "labeledFaceDescriptors.json";
+  a.click();
+
+  URL.revokeObjectURL(url);
 });

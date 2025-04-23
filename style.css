@@ -12,11 +12,18 @@ canvas {
     position: absolute;
     
 }
-button {
+#buttonContainer {
     position: absolute;
     top: 20px;
     left: 20px;
-    padding: 10px 20px;
-    font-size: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px; /* space between buttons */
     z-index: 10;
 }
+
+#buttonContainer button {
+    padding: 10px 20px;
+    font-size: 16px;
+}
+
