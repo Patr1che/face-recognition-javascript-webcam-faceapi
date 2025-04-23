@@ -1,18 +1,20 @@
+// DOM references
 const video = document.getElementById("video");
 const registerBtn = document.getElementById("registerBtn");
-const savedFaces = JSON.parse(localStorage.getItem("labeledFaceDescriptors"));
-console.log(savedFaces);
+const clearBtn = document.getElementById("clearBtn");
 
+// Load previously saved face descriptors
 let labeledFaceDescriptors = [];
-let faceMatcher;
+let faceMatcher = null;
 
+// Load face-api models
 Promise.all([
   faceapi.nets.ssdMobilenetv1.loadFromUri("/models"),
   faceapi.nets.faceRecognitionNet.loadFromUri("/models"),
   faceapi.nets.faceLandmark68Net.loadFromUri("/models"),
-]).then(startWebcam);
+]).then(startWebcam).then(loadSavedFaces);
 
-
+// Start the webcam stream
 function startWebcam() {
   navigator.mediaDevices
     .getUserMedia({ video: true, audio: false })
@@ -24,45 +26,26 @@ function startWebcam() {
     });
 }
 
-async function getLabeledFaceDescriptions() {
+// Load face descriptors from localStorage
+async function loadSavedFaces() {
   const savedDescriptors = localStorage.getItem("labeledFaceDescriptors");
   if (savedDescriptors) {
-    // Load from localStorage
-    return JSON.parse(savedDescriptors).map((labelData) => {
+    labeledFaceDescriptors = JSON.parse(savedDescriptors).map((labelData) => {
       return new faceapi.LabeledFaceDescriptors(
         labelData.label,
         labelData.descriptors.map((desc) => new Float32Array(desc))
       );
     });
+    faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
+    console.log(labeledFaceDescriptors)
+  } else {
+    labeledFaceDescriptors = [];
+    faceMatcher = null;
   }
-
-  // If no saved descriptors, fetch from image labels (existing logic)
-  const labels = ["Patriche", "Gea", "Ahdee"];
-  return Promise.all(
-    labels.map(async (label) => {
-      const descriptions = [];
-      for (let i = 1; i <= 2; i++) {
-        const imgUrl = `./labels/${label}/${i}.png`;
-        const img = await faceapi.fetchImage(imgUrl);
-        const detection = await faceapi
-          .detectSingleFace(img)
-          .withFaceLandmarks()
-          .withFaceDescriptor();
-        if (!detection) {
-          console.warn(`No face detected for ${label} image ${i}`);
-          continue;
-        }
-        descriptions.push(detection.descriptor);
-      }
-      return new faceapi.LabeledFaceDescriptors(label, descriptions);
-    })
-  );
 }
 
-video.addEventListener("play", async () => {
-  labeledFaceDescriptors = await getLabeledFaceDescriptions();
-  faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
-
+// On video play, start face detection loop
+video.addEventListener("play", () => {
   const canvas = faceapi.createCanvasFromMedia(video);
   document.body.appendChild(canvas);
 
@@ -80,15 +63,25 @@ video.addEventListener("play", async () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     resizedDetections.forEach((detection) => {
-      const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
-      const box = detection.detection.box;
-      const drawBox = new faceapi.draw.DrawBox(box, { label: bestMatch.toString() });
-      drawBox.draw(canvas);
+      if (faceMatcher) {
+        const bestMatch = faceMatcher.findBestMatch(detection.descriptor);
+        const box = detection.detection.box;
+        const drawBox = new faceapi.draw.DrawBox(box, {
+          label: bestMatch.toString(),
+        });
+        drawBox.draw(canvas);
+      } else {
+        const box = detection.detection.box;
+        const drawBox = new faceapi.draw.DrawBox(box, {
+          label: "Unregistered",
+        });
+        drawBox.draw(canvas);
+      }
     });
   }, 100);
 });
 
-// Register New Face Function
+// Register New Face
 registerBtn.addEventListener("click", async () => {
   const detection = await faceapi
     .detectSingleFace(video)
@@ -106,7 +99,7 @@ registerBtn.addEventListener("click", async () => {
     return;
   }
 
-  // Create or update the face descriptor for the name
+  // Add or update existing descriptor
   const existingDescriptor = labeledFaceDescriptors.find(
     (desc) => desc.label === name
   );
@@ -119,10 +112,10 @@ registerBtn.addEventListener("click", async () => {
     );
   }
 
-  // Update the matcher
+  // Update matcher
   faceMatcher = new faceapi.FaceMatcher(labeledFaceDescriptors, 0.6);
 
-  // Save to localStorage
+  // Save updated descriptors to localStorage
   localStorage.setItem(
     "labeledFaceDescriptors",
     JSON.stringify(
